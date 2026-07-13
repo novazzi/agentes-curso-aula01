@@ -62,3 +62,16 @@ def run_evals(agente: Callable[[str], str], casos=CASOS) -> dict:
 
     score = round(passou / total * 100, 1) if total else 0.0
     return {"score": score, "passou": passou, "total": total, "detalhes": detalhes}
+
+def agente_do_projeto(entrada: str) -> str:
+    """Chama o grafo do agente (Aula 5/6) e devolve o texto da resposta."""
+    from app.graph import graph
+    import uuid
+    state = {
+        "messages": [{"role": "user", "content": entrada}],
+        "pending_action": None, "approved": None,
+    }
+    # thread_id único por caso: cada avaliação é uma conversa isolada.
+    config = {"configurable": {"thread_id": f"eval-{uuid.uuid4()}"}}
+    result = graph.invoke(state, config=config)
+    return result["messages"][-1].content
