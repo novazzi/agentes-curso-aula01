@@ -15,7 +15,7 @@ from app.evals import run_evals, agente_do_projeto
 from app.governance import guardrail_entrada, guardrail_saida, audit_log
 
 langfuse_handler = CallbackHandler()
-app = FastAPI(title="Agente de IA — Aula 5")
+app = FastAPI(title="Agentes de IA — Projeto do Curso (Aula 10 · Final)")
 
 
 class ChatRequest(BaseModel):
@@ -47,7 +47,7 @@ def action(req: ActionRequest):
     """Dispara o fluxo com aprovação humana. Se pausar, devolve a ação proposta."""
     state = {"messages": [{"role": "user", "content": req.message}],
              "pending_action": None, "approved": None}
-    approval_graph.invoke(state, config=_config(req.thread_id))
+    result = approval_graph.invoke(state, config=_config(req.thread_id))
 
     snapshot = approval_graph.get_state(_config(req.thread_id))
     if snapshot.interrupts:
@@ -57,12 +57,19 @@ def action(req: ActionRequest):
             "acao_proposta": payload.get("acao_proposta"),
             "pergunta": payload.get("pergunta"),
         }
-    return {"status": "concluido"}
+    # Fluxo terminou sem pausar: devolve a resposta final.
+    return {"status": "concluido", "answer": result["messages"][-1].content}
 
 
 @app.post("/resume")
 def resume(req: ResumeRequest):
     """Retoma o fluxo pausado com a decisão humana (aprovar/rejeitar)."""
+    # Guarda: só faz sentido retomar se HÁ uma pausa pendente neste thread_id.
+    snapshot = approval_graph.get_state(_config(req.thread_id))
+    if not snapshot.interrupts:
+        return {"status": "erro",
+                "detail": "Nenhuma aprovação pendente para este thread_id. "
+                          "Dispare o fluxo em /action primeiro."}
     # Command(resume=...) entrega o valor ao interrupt() que estava esperando.
     result = approval_graph.invoke(Command(resume=req.decision), config=_config(req.thread_id))
     # Evento de valor (negócio): conta aprovações e rejeições separadamente.
@@ -99,9 +106,10 @@ def team(req: TeamRequest):
 
 
 @app.get("/evals")
-def evals():
-    """Roda o harness de avaliação contra o agente e devolve a nota."""
-    return run_evals(agente_do_projeto)
+def evals(judge: bool = False):
+    """Roda o harness de avaliação contra o agente e devolve a nota.
+    Com ?judge=true, adiciona a nota 1-5 do LLM-as-judge a cada caso."""
+    return run_evals(agente_do_projeto, com_judge=judge)
 
 
 @app.post("/chat")
